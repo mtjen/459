@@ -1,0 +1,200 @@
+---
+title: "Max Tjen: 459 Homework 1"
+author: "Max Tjen"
+date: "`r Sys.Date()`"
+output:
+  html_document: 
+    theme: paper
+    highlight: textmate
+    toc: true
+    toc_float: true
+    number_sections: true
+    code_folding: show
+    code_download: true
+---
+
+```{r setup, include=FALSE, message = FALSE}
+knitr::opts_chunk$set(comment=NA)
+options(width = 70)
+```
+
+
+## Setup
+
+```{r load_packages, message = FALSE, warning = FALSE}
+
+library(rstatix)
+library(reshape2)
+library(GGally)
+library(tidyverse)
+
+theme_set(theme_bw())
+```
+
+## Data Import
+
+```{r, message = FALSE}
+aids_data <- read_csv("/Users/mtjen/Desktop/459/homework/hw1/aids.csv")
+
+head(aids_data)
+```
+
+
+# Question 1
+
+```{r}
+q1_data <- aids_data
+
+# pivot data from long to wide format
+q1_data <- q1_data |>
+  pivot_wider(names_from = "obstime",
+              values_from = "CD4")
+
+# rename observation time variables
+names(q1_data)[names(q1_data) == "0"] <- "T0"
+names(q1_data)[names(q1_data) == "2"] <- "T2"
+names(q1_data)[names(q1_data) == "6"] <- "T6"
+names(q1_data)[names(q1_data) == "12"] <- "T12"
+names(q1_data)[names(q1_data) == "18"] <- "T18"
+
+# reposition "T2" between "T0" and "T6"
+q1_data <- q1_data |>
+  relocate("T2", .after = "T0")
+
+head(q1_data)
+```
+
+Here, we convert the data from long format to wide format so that the times of observations are more clear. After that, we repositioned one of the variables (T2) so that all of the observation times are chronologically ordered. Now, each of the time variables (T0 ... T18) represents the time period of the CD4 observation. To keep all the variables, we didn't collapse rows of same patients to keep the start and stop variables as their values for each observation are different.
+
+
+# Question 2
+
+```{r, message = FALSE, warning = FALSE}
+
+# make new dataset
+q2_data <- q1_data |>
+  select(patient, T0, T2, T6, T12, T18)
+
+# group data by patient
+q2_data <- q2_data |> 
+  group_by(patient) |> 
+  summarise_if(is.numeric, sum, na.rm = TRUE)
+
+# turn 0 values to NA since NA's were converted to 0 during grouping
+q2_data[q2_data == 0] <- NA
+
+head(q2_data)
+
+# remove patient
+q2_data <- q2_data |>
+  select(-patient)
+
+# get correlations
+ggpairs(q2_data)
+```
+
+From the correlation matrix, it appears that the repeated measurements of CD4 values are correlated by patient. For all of the time groups, the lowest correlation value is 0.777 between time 0 and time 12, which still indicates strong correlation. Furthermore, the correlations are very evident by looking at the scatter plots, where each plot appears to have a strong linear trend.
+
+
+# Question 3
+
+```{r}
+# create plot to visualize longitudinal data
+ggplot(aids_data, aes(x = factor(obstime), y = CD4, fill = factor(obstime))) + 
+  geom_boxplot() +
+  facet_wrap(~drug, labeller = "label_both") +
+  labs(title = "CD4 Values by Observation Time by Drug",
+       x = "Observaton Time", 
+       y = "CD4")
+
+# get median values of ddC by group
+aids_data |> 
+  filter(drug == "ddC") |>
+  group_by(obstime) |> 
+  summarise(median(CD4))
+  
+# get median values of ddI by group
+aids_data |> 
+  filter(drug == "ddI") |>
+  group_by(obstime) |> 
+  summarise(median(CD4))
+```
+
+To explore the longitudinal trend of CD4 over various observation time points, we used a boxplot to see CD4 by observation time for each drug. We chose this because the plot clearly differentiates each observation time point and we can easily compare them by looking at quartile values, inter quartile range, and outliers. From this plot, we can see that CD4 value distributions for each drug are relatively similar for all the observation points. For the ddC drug, we can see that from time 0 to time 12, the median CD4 consistently decreases but from time 12 to 18, the median increases. For the ddI drug, the median CD4 value decreases over every time period. This can be confirmed by looking at the precise median CD4 values for each drug, where we can also observe that drug ddI has a greater impact on decreasing CD4 than ddC based on the overall change in median CD4 values for each.
+
+
+# Question 4
+
+## Part I
+
+```{r}
+# RM ANOVA
+aids_data |>
+  anova_test(CD4 ~ drug * obstime + Error(patient/obstime)) |>
+  get_anova_table()
+```
+
+By running an RM ANOVA test, we can see that the interaction term between drug and observation time isn't significant. Because there is no interaction effect, the CD4 value trend lines for each drug are parallel, so the drug and observation variables are independent. Referring back to the visualization in question 3, we can see how the overall trend for both treatment arms are relatively similar over time and act the same way. 
+
+## Part II
+```{r}
+# subset question 1 data
+q4_data <- q1_data |>
+  select(patient, T0, T2, T6, T12, T18)
+
+# group data by patient
+q4_data <- q4_data |> 
+  group_by(patient) |> 
+  summarise_if(is.numeric, sum, na.rm = TRUE)
+
+# turn 0 values to NA since NA's were converted to 0 during grouping
+q4_data[q4_data == 0] <- NA
+
+# convert data to long format
+q4_data <- melt(q4_data,
+                id.vars = c("patient"), 
+                variable.name = "obstime", 
+                value.name = "CD4")
+
+head(q4_data)
+
+# pairwise analysis --- wrong !!!!!
+q4_data |> 
+  pairwise_t_test(CD4 ~ obstime, 
+                  p.adjust.method = "bonferroni")
+
+# what it should be 
+q4_data |> 
+  pairwise_t_test(CD4 ~ obstime, 
+                  paired = TRUE,
+                  p.adjust.method = "bonferroni")
+```
+
+We want to run pairwise analysis with observation times because there is no interaction between drug and observation time. In order to run this test, we had to create a new dataset, where we began by subsetting our data from question 1 as it was already in wide format. With this, we could group together data for each patient using group_by() and summarise_if(). In this step, NA values were turned to 0, so we had to convert 0 values back to NA. Lastly, we converted this data into long format so that pairwise_t_test() could digest it. By looking at our test results, the only pair of observation times that are significant are time 2 and time 6 with a p-value of 0.047. This would clear both a 90% and 95% significance level, which means that with 95% significance the chance of type-I error is 5%. The next smallest p-value 0.127 between observation times 2 and 18, which wouldn't pass a 90% significance. 
+
+```{r}
+# summary statistics of CD4 for time 2
+summary(aids_data |> 
+          filter(obstime == 2) |> 
+          select(CD4))
+
+# summary statistics of CD4 for time 2
+summary(aids_data |> 
+          filter(obstime == 6) |> 
+          select(CD4))
+```
+
+We also looked at summary statistics for both observation times of 2 and 6 where we can see the differences in CD4 values between the times. By observation time 2 and 6 being significant, we can conclude that CD4 values for those time frames are statistically different.
+
+
+# Question 5
+
+From Mr. Doe's regression model, we can conclude that only a patient's drug is significant and the observation time is not. This is because the p-value of drugddI is 0.027 and falls below an $\alpha$ = 0.05 level. We can also see through the coefficients that the model expects that if a patient is on ddI rather than ddC, the expected CD4 value will 0.584 higher. Thus, it believes that holding observation time constant, patients who are taking ddC will have lower CD4 values than those taking ddI. Lastly, the obstime coefficient is very small, which indicates that the model doesn't expect there to be a huge change in CD4 from time 0 to 18. Since the coefficient is -0.035, the model believes that each unit of observation time decreases CD4 by 0.035, so if a patient stays on the same drug from time 0 to 18, their CD4 value is predicted to decrease by 0.630 (18 * 0.035). I do not agree with his modeling approach because of his decision to use a linear model. This is because a linear models assumes independence, which is not achieved with this dataset because of how certain rows/observations are correlated. They are correlated by patient, so the CD4 values of rows of the same patient will be correlated, thus they are not independent.
+
+
+# Session Information
+
+```{r}
+sessionInfo()
+```
+
