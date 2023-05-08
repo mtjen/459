@@ -1,0 +1,466 @@
+---
+title: "459 Project"
+author: "Max Tjen"
+date: "`r Sys.Date()`"
+output:
+  html_document: 
+    theme: paper
+    highlight: textmate
+    toc: true
+    toc_float: true
+    number_sections: true
+    code_folding: show
+    code_download: true
+---
+
+```{r setup, include=FALSE, message = FALSE}
+knitr::opts_chunk$set(comment=NA)
+options(width = 70)
+```
+
+
+## Setup
+
+```{r load_packages, message = FALSE, warning = FALSE}
+
+library(haven)
+library(rms)
+library(kableExtra)
+library(caret)
+library(lme4)
+library(forestplot) 
+library(DescTools)
+library(rsq)
+library(broom)
+library(broom.mixed)
+library(dplyr)
+library(tidyverse)
+
+theme_set(theme_bw())
+```
+
+## Data Import
+
+```{r, message = FALSE}
+data2 <- read_sas("/Users/mtjen/Desktop/459/project/w2inhome.sas7bdat") |>
+  select(AID, H2GH53, BIO_SEX2, H2TO3, H2NU77) |>
+  mutate(gender2 = BIO_SEX2,
+         weight2 = H2GH53,
+         smoke2 = H2TO3,
+         food2 = H2NU77) |>
+  select(-H2GH53, -BIO_SEX2, -H2TO3, -H2NU77)
+
+data3 <- read_sas("/Users/mtjen/Desktop/459/project/w3inhome.sas7bdat") |>
+  select(AID, H3DA44, BIO_SEX3, H3TO4, H3GH18) |>
+  mutate(gender3 = BIO_SEX3,
+         weight3 = H3DA44,
+         smoke3 = H3TO4,
+         food3 = H3GH18) |>
+  select(-H3DA44, -BIO_SEX3, -H3TO4, -H3GH18)
+
+data4 <- read_sas("/Users/mtjen/Desktop/459/project/w4inhome.sas7bdat") |>
+  select(AID, H4GH6, BIO_SEX4, H4TO3, H4GH8) |>
+  mutate(gender4 = BIO_SEX4,
+         weight4 = H4GH6,
+         smoke4 = H4TO3,
+         food4 = H4GH8) |>
+  select(-H4GH6, -BIO_SEX4, -H4TO3, -H4GH8)
+```
+
+
+# Gender
+
+```{r}
+# select gender from each
+gend2 <- data2 |> select(AID, gender2)
+gend3 <- data3 |> select(AID, gender3)
+gend4 <- data4 |> select(AID, gender4)
+
+# inner join data by AID
+gend_data <- inner_join(gend2, gend3, by = "AID")
+gend_data <- inner_join(gend_data, gend4, by = "AID")
+
+# convert data to long
+gend_data_long <- gend_data |>
+  mutate(two = gender2,                        # change variable names
+         three = gender3,
+         four = gender4) |>
+  pivot_longer(cols = two:four,                # pivot
+               names_to = "wave", 
+               values_to = "gender") |>
+  mutate(wave = as.factor(wave)) |>
+  select(-gender2, -gender3, -gender4)
+```
+
+# Weight
+
+```{r}
+# select weight from each
+weight2 <- data2 |> select(AID, weight2)
+weight3 <- data3 |> select(AID, weight3)
+weight4 <- data4 |> select(AID, weight4)
+
+# inner join data by AID
+weight_data <- inner_join(weight2, weight3, by = "AID")
+weight_data <- inner_join(weight_data, weight4, by = "AID")
+
+# convert data to long
+weight_data_long <- weight_data |>
+  mutate(two = weight2,                        # change variable names
+         three = weight3,
+         four = weight4) |>
+  pivot_longer(cols = two:four,                # pivot
+               names_to = "wave", 
+               values_to = "weight") |>
+  mutate(wave = as.factor(wave)) |>
+  select(-weight2, -weight3, -weight4)
+```
+
+# Smoke
+
+```{r}
+# select weight from each
+smoke2 <- data2 |> select(AID, smoke2)
+smoke3 <- data3 |> select(AID, smoke3)
+smoke4 <- data4 |> select(AID, smoke4)
+
+# inner join data by AID
+smoke_data <- inner_join(smoke2, smoke3, by = "AID")
+smoke_data <- inner_join(smoke_data, smoke4, by = "AID")
+
+# convert data to long
+smoke_data_long <- smoke_data |>
+  mutate(two = smoke2,                        # change variable names
+         three = smoke3,
+         four = smoke4) |>
+  pivot_longer(cols = two:four,               # pivot
+               names_to = "wave", 
+               values_to = "smoke") |>
+  mutate(wave = as.factor(wave)) |>
+  select(-smoke2, -smoke3, -smoke4)
+```
+
+# food
+
+```{r}
+# select weight from each
+food2 <- data2 |> select(AID, food2)
+food3 <- data3 |> select(AID, food3)
+food4 <- data4 |> select(AID, food4)
+
+# inner join data by AID
+food_data <- inner_join(food2, food3, by = "AID")
+food_data <- inner_join(food_data, food4, by = "AID")
+
+# convert data to long
+food_data_long <- food_data |>
+  mutate(two = food2,                        # change variable names
+         three = food3,
+         four = food4) |>
+  pivot_longer(cols = two:four,              # pivot
+               names_to = "wave", 
+               values_to = "food") |>
+  mutate(wave = as.factor(wave)) |>
+  select(-food2, -food3, -food4)
+```
+
+# Combine 
+
+```{r}
+# merge datasets
+long_data <- inner_join(gend_data_long, weight_data_long, by = c('AID', 'wave'))
+long_data <- inner_join(long_data, smoke_data_long, by = c('AID', 'wave'))
+long_data <- inner_join(long_data, food_data_long, by = c('AID', 'wave'))
+
+long_data <- long_data |>
+  mutate(gender = as.factor(case_when(gender == 1 ~ "Male",            # change values
+                                      gender == 2 ~ "Female")),
+         id = AID) |>
+  select(-AID) |>
+  relocate(id, .before = wave) |>         # move id to front
+  filter(complete.cases(food))            # remove values missing outcome
+
+long_data$wave <- factor(long_data$wave, levels=c('two', 'three', 'four'))
+
+
+head(long_data)
+```
+
+# Summaries
+
+```{r}
+summary(long_data)
+```
+
+# Filter Out Refused/Don't Know Responses
+
+```{r}
+long_data <- long_data |>
+  filter(weight != 996) |>
+  filter(weight != 998) |>
+  filter(food != 996) |>
+  filter(food != 998) |>
+  mutate(wave = as.factor(case_when(wave == "two" ~ "1998",            # change values
+                                    wave == "three" ~ "2003",
+                                    wave == "four"~ "2008")))
+```
+
+# Save Data
+
+```{r}
+saveRDS(long_data, "/Users/mtjen/Desktop/459/project/project_data.Rds")
+```
+
+
+
+
+
+
+# Load Data
+
+```{r}
+data <- read_rds("/Users/mtjen/Desktop/459/project/data.Rds")
+long_data <- read_rds("/Users/mtjen/Desktop/459/project/project_data.Rds")
+```
+
+# Filter
+
+```{r}
+data <- data |>
+  mutate(food = as.factor(case_when(food == "Low" ~ 0,
+                                    food == "High" ~ 1))) |> 
+  filter(smoke < 2) |>
+  mutate(smoke = as.factor(case_when(smoke == 0 ~ "No",
+                                     smoke == 1 ~ "Yes")))
+
+levels(data$smoke) = c("No", "Yes")
+
+long_data <- long_data |>
+  filter(weight != 999) |>
+  filter(food != 99) |>
+  mutate(wave = as.factor(case_when(wave == "1998" ~ "II",
+                                    wave == "2003" ~ "III",
+                                    wave == "2008" ~ "IV"))) |> 
+  filter(smoke < 2)
+```
+
+# Line Plot
+
+```{r}
+# summary stats
+predictor_summary <- long_data |>
+  group_by(gender, wave) |>
+  summarise(n = n(), mean = mean(food), stdev = sd(food))
+
+ggplot(predictor_summary, aes(x = wave, y = mean, col = gender)) + 
+  geom_point(size = 2) +
+  geom_line(aes(group = gender)) +
+  labs(title = "Fast Food Consumption by Wave by Gender",
+       x = "Wave", 
+       y = "Mean Fast Food Consumption")
+```
+
+# Boxplot
+
+```{r}
+ggplot(long_data, 
+       aes(x = factor(wave), y = food, fill = wave)) + 
+  geom_boxplot() +
+  facet_wrap(~gender, labeller = "label_both") +
+  labs(title = "Fast Food Consumption by Wave by Gender",
+       x = "Wave", 
+       y = "Fast Food Consumption")
+```
+
+# Logistic Regression
+
+```{r}
+# fit model
+model <- glm(food ~ wave + gender + weight + smoke, 
+             data = data, 
+             family = binomial(link = "logit"))
+
+# get coefficient values
+tidy(model, exponentiate = TRUE, conf.int = TRUE, conf.level = 0.95) |> 
+  select(term, estimate, conf.low, conf.high, p.value) |> 
+  kable(dig = 3)
+
+summary(model)
+```
+
+```{r}
+confusion_data <- augment(model, type.predict = "response")
+
+confMatrix <- confusionMatrix(data = factor(confusion_data$.fitted >= 0.10),
+                              reference = factor(confusion_data$food == 1))
+
+confMatrix
+
+confMatrix <- confusionMatrix(data = factor(confusion_data$.fitted >= 0.08),
+                              reference = factor(confusion_data$food == 1))
+
+confMatrix
+```
+
+# Train-Test Split
+
+```{r}
+unique_ids <- unique(data$id)
+num_unique <- length(unique_ids)
+num_train <- ceiling(num_unique * 0.7)
+
+num_unique
+num_train
+
+set.seed(12321)
+train_ids <- sample(unique_ids, num_train)
+```
+
+```{r}
+# train and test data
+train_data <- data |>
+  filter(id %in% train_ids)
+
+test_data <- anti_join(data, train_data, by = "id")
+
+dim(train_data)
+dim(test_data)
+```
+
+# GLMM
+
+```{r}
+glmm_0 <- glmer(food ~ wave * gender + (1 | id),
+                family = binomial(), 
+                data = train_data)
+
+glmm_1 <- glmer(food ~ wave + gender + (1 | id),
+                family = binomial(), 
+                data = train_data)
+```
+
+```{r}
+anova(glmm_1, glmm_0)
+```
+
+```{r}
+glmm_2 <- glmer(food ~ wave + gender + weight + smoke + (1 | id),
+                family = binomial(), 
+                data = train_data)
+```
+
+```{r}
+anova(glmm_1, glmm_2)
+```
+
+```{r}
+tidy(glmm_1, conf.int = TRUE, exponentiate = TRUE, 
+     effects = "fixed", conf.level = 0.95) |> 
+  select(term, estimate, conf.low, conf.high, p.value) |> 
+  kable(dig = 3)
+  
+tidy(glmm_2, conf.int = TRUE, exponentiate = TRUE, 
+     effects = "fixed", conf.level = 0.95) |> 
+  select(term, estimate, conf.low, conf.high, p.value) |> 
+  kable(dig = 3)
+```
+
+```{r}
+rsq(glmm_1)
+Cstat(x = predict(glmm_1, method = "response"), 
+      resp = model.response(model.frame(glmm_1)))
+```
+
+```{r}
+glmm_1_fp <- tibble(mean = c(4.30, 2.53, 2.06),
+                    lower = c(2.58, 1.52, 1.12),
+                    upper = c(7.16, 4.21, 3.77),
+                    term = c("Wave III", "Wave IV", "Male"),
+                    estimate = c("4.30", "2.53", "2.06"),
+                    ci = c("(2.58, 7.16)", "(1.52, 4.21)", "(1.12, 3.77)"),
+                    pVal = c("0.000", "0.000", "0.002"))
+
+glmm_1_fp |>
+  forestplot(labeltext = c(term, estimate, ci, pVal),
+             grid = structure(c(1), gp = gpar(lty = 2, col = "red")),
+             boxsize = 0.15) |>
+  fp_set_style(box = "royalblue",
+               line = "black") |> 
+  fp_add_header(term = c("Term"),
+                estimate = c("Estimate"),
+                ci = c("95% CI"),
+                pVal = c("p-value"))
+  
+```
+
+```{r}
+glmm_2_fp <- tibble(mean = c(4.27, 2.59, 2.22, 0.997, 1.30),
+                    lower = c(2.47, 1.44, 1.17, 0.991, 0.784),
+                    upper = c(7.40, 4.66, 4.21, 1.00, 2.16),
+                    term = c("Wave III", "Wave IV", "Male", "Weight", "SmokerHx"),
+                    estimate = c("4.27", "2.59", "2.22", "0.997", "1.30"),
+                    ci = c("(2.47, 7.40)", "(1.44, 4.66)", "(1.17, 4.21)", 
+                           "(0.991, 1.00)", "(0.784, 2.16)"),
+                    pVal = c("0.000", "0.001", "0.015", "0.460", "0.308"))
+
+glmm_2_fp |>
+  forestplot(labeltext = c(term, estimate, ci, pVal),
+             grid = structure(c(1), gp = gpar(lty = 2, col = "red")),
+             boxsize = 0.25) |>
+  fp_set_style(box = "royalblue",
+               line = "black") |> 
+  fp_add_header(term = c("Term"),
+                estimate = c("Estimate"),
+                ci = c("95% CI"),
+                pVal = c("p-value"))
+  
+```
+
+# Validation with Test
+
+```{r}
+glmm_val <- glmer(food ~ wave + gender + (1 | id),
+                  family = binomial(), 
+                  data = test_data)
+
+tidy(glmm_val, conf.int = TRUE, exponentiate = TRUE, 
+     effects = "fixed", conf.level = 0.95) |> 
+  select(term, estimate, conf.low, conf.high, p.value) |> 
+  kable(dig = 3)
+
+rsq(glmm_val)
+Cstat(x = predict(glmm_val, method = "response"), 
+      resp = model.response(model.frame(glmm_val)))
+```
+
+```{r}
+glmm_1_val <- tibble(mean = c(3.69, 3.58, 2.32),
+                    lower = c(3.67, 3.57, 2.31),
+                    upper = c(3.71, 3.60, 2.33),
+                    term = c("Wave III", "Wave IV", "Male"),
+                    estimate = c("3.69", "3.58", "2.32"),
+                    ci = c("(3.67, 3.71)", "(3.57, 3.60)", "(2.31, 2.33)"),
+                    pVal = c("0.000", "0.000", "0.000"))
+
+glmm_1_val |>
+  forestplot(labeltext = c(term, estimate, ci, pVal),
+             grid = structure(c(1), gp = gpar(lty = 2, col = "red")),
+             boxsize = 0.15) |>
+  fp_set_style(box = "royalblue",
+               line = "black") |> 
+  fp_add_header(term = c("Term"),
+                estimate = c("Estimate"),
+                ci = c("95% CI"),
+                pVal = c("p-value"))
+  
+```
+
+```{r}
+test <- tibble(Model = c("Train", "Test"),
+               R2 = c(0.526, 0.488),
+               C = c(0.976, 0.972))
+
+test |> kable(align = 'c')
+```
+
+
