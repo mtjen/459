@@ -1,0 +1,217 @@
+---
+title: "Max Tjen: 459 Homework 5"
+author: "Max Tjen"
+date: "`r Sys.Date()`"
+output:
+  html_document: 
+    theme: paper
+    highlight: textmate
+    toc: true
+    toc_float: true
+    number_sections: true
+    code_folding: show
+    code_download: true
+---
+
+```{r setup, include=FALSE, message = FALSE}
+knitr::opts_chunk$set(comment=NA)
+options(width = 70)
+```
+
+
+## Setup
+
+```{r load_packages, message = FALSE, warning = FALSE}
+
+library(lme4)
+library(broom.mixed)
+library(kableExtra)
+library(GLMMadaptive)
+library("lattice")
+library(tidyverse)
+
+theme_set(theme_bw())
+```
+
+## Data Import
+
+```{r, message = FALSE}
+hw05_data <- read_csv("/Users/mtjen/Desktop/459/homework/hw2/pbc.csv")
+```
+
+
+# Question 1
+
+```{r}
+hw05_data$abnorm_prothro <- as.numeric(with(hw05_data, prothrombin < 11 | prothrombin > 13))
+
+hw05_data <- hw05_data |>
+    mutate(drug = factor(drug, levels = c("placebo", "D-penicil")),
+           sex = factor(sex, levels = c("female", "male")))
+```
+
+Here, we create a new variables with observations on whether or not the prothrombin time is abnormal.
+
+## Part 1
+
+```{r}
+mod_1 <- glmer(abnorm_prothro ~  year + sex + drug + year * sex + drug * sex + (1|id),
+               family = binomial(),
+               data = hw05_data)
+
+summary(mod_1)
+```
+
+Here, we create the model that Mr. Bean is trying to implement.
+
+## Part 2
+
+```{r}
+# confidence interval
+tidy(mod_1, conf.int = TRUE, exponentiate = TRUE, 
+     effects = "fixed", conf.level = 0.95) |> 
+  select(term, estimate, conf.low, conf.high, p.value) |> 
+  kable(dig = 3)
+```
+
+The coefficient estimate of `drug` is 1.140 with a 95% confidence interval of (0.799, 1.626) and a p-value of 0.470. This means that for a typical patient in the population, the odds of having an abnormal prothrombin time increases by 14% if they are given D-penicil rather than the placebo. Because the p-value is greater than $\alpha$ = 0.05, we can't conclude that the point estimate is statistically significant. Furthermore, the confidence interval includes 1, which means that we can't conclude with 95% confidence whether or not the treatment increases or decreases the odds of having an abnormal prothrombin time.
+
+## Part 3
+
+```{r}
+point_est_raw = 0.13089 + 0.54551
+point_est = exp(point_est_raw)
+covariance = -0.342 * 0.18112 * 0.52617
+  
+variance = 0.18112^2 + 0.52617^2 + 2 * covariance
+
+conf_high = exp(point_est_raw + 1.96 * variance)
+conf_low = exp(point_est_raw - 1.96 * variance)
+
+point_est
+conf_low
+conf_high
+```
+
+Here, we obtain the treatment effect for a typical male patient at age 50, measured at year 1. We got a point estimate of 1.967 with a 95% confidence interval of (1.218, 3.176). This means that for a typical male patient at age 50 and measured at time one, the odds of having an abnormal prothrombin time increases by 97% if they are given D-penicil rather than the placebo.
+
+
+# Question 2
+
+## Part 1
+
+```{r}
+# random slope
+mod_2 <- glmer(abnorm_prothro ~ year + sex + drug + year * sex + drug * sex + (year|id),
+               family = binomial(),
+               data = hw05_data)
+
+anova(mod_1, mod_2)
+```
+
+Here, we implement a new model that is the same as model with the addition of a random slope. To determine which of model 1 or model 2 is better, we will use an ANOVA test. With this, we can see that the p-value is significant, indicating that the random slope does improve the model fit.
+
+## Part 2
+
+```{r}
+# remove interactions
+mod_3 <- glmer(abnorm_prothro ~ year + sex + drug + (year|id),
+               family = binomial(),
+               data = hw05_data)
+
+anova(mod_2, mod_3)
+```
+
+After fitting and running a new model where the interaction terms are removed, there are no issues observed. We also want to compare this new model with model 2, so we will run an ANOVA test again. From p-value returned by the ANOVA test is 0.075, which is greater than our acceptable $\alpha$ = 0.05, which means that this new model doesn't improve the fit of the model.
+
+## Part 3
+
+```{r}
+tidy(mod_3, conf.int = TRUE, exponentiate = TRUE, 
+     effects = "fixed", conf.level = 0.95) |> 
+  select(term, estimate, conf.low, conf.high, p.value) |> 
+  kable(dig = 3)
+```
+
+Using the results from model 3, we can interpret the parameter estimates for drug and year. The coefficient estimate of `year` is 0.759 with a 95% confidence interval of (0.703, 0.819) and a p-value of 0.000. This means that for a typical patient in the population, the odds of having an abnormal prothrombin time decreases by 24% with each year. Furthermore, the entire confidence interval is below 1 and the p-value is below the $\alpha$ threshold, so we conclude with confidence the effect direction and significance of our estimates for `year`. The coefficient estimate of `drug` is 1.275 with a 95% confidence interval of (0.859, 1.893) and a p-value of 0.227. This means that for a typical patient in the population, the odds of having an abnormal prothrombin time increases by 28% if they are given D-penicil rather than the placebo. Since the confidence interval includes 1 and the p-valuee is greater than our $\alpha$ threshold, we can't conclude with confidence the effect direction and significance of our estimates for `drug`. 
+
+
+# Question 3
+
+## Part 1
+
+```{r}
+mod_4 <- mixed_model(fixed = abnorm_prothro ~ year + sex + drug,
+                     random = ~ year | id, 
+                     family = binomial(), data = hw05_data)
+
+# new dataset
+newDF <- with(hw05_data, expand.grid(year = seq(0, 12, length.out = 15),
+                                     drug = levels(drug),
+                                     sex = unique(sex)))
+
+summary(mod_4)
+```
+
+Here, we create a new model that will allow Mr. Bean to make predictions at both the subject-specific and marginal levels.
+
+## Part 2
+
+```{r}
+# marginal predictions
+pred_marg <- effectPlotData(mod_4, newDF, marginal = TRUE)
+
+# subject-specific predictions
+pred_indiv <- effectPlotData(mod_4, newDF)
+
+# function to exponentiate values
+exponentiate <- function (x) exp(x) / (1 + exp(x))
+```
+
+```{r}
+# viz (by sex) [marginal]
+xyplot(exponentiate(pred) + exponentiate(low) + exponentiate(upp) ~ year | sex, 
+       data = pred_marg,
+       type = "l", lty = c(1, 2, 2), col = c(2, 1, 1), lwd = 2,
+       title = "Marginal Probability by Sex", 
+       xlab = "Enrollment Time", 
+       ylab = "Probability of Abnormal Prothrombin Time")
+
+# viz (by sex) [subject-specific]
+xyplot(exponentiate(pred) + exponentiate(low) + exponentiate(upp) ~ year | sex, 
+       data = pred_indiv,
+       type = "l", lty = c(1, 2, 2), col = c(2, 1, 1), lwd = 2,
+       title = "Subject-Specific Probability by Sex", 
+       xlab = "Enrollment Time", 
+       ylab = "Probability of Abnormal Prothrombin Time")
+
+# viz (by drug) [marginal]
+xyplot(exponentiate(pred) + exponentiate(low) + exponentiate(upp) ~ year | drug, 
+       data = pred_marg,
+       type = "l", lty = c(1, 2, 2), col = c(2, 1, 1), lwd = 2,
+       title = "Marginal Probability by Drug", 
+       xlab = "Enrollment Time",  
+       ylab = "Probability of Abnormal Prothrombin Time")
+
+# viz (by drug) [subject-specific]
+xyplot(exponentiate(pred) + exponentiate(low) + exponentiate(upp) ~ year | drug, 
+       data = pred_indiv,
+       type = "l", lty = c(1, 2, 2), col = c(2, 1, 1), lwd = 2,
+       title = "Subject-Specific Probability by Drug", 
+       xlab = "Enrollment Time",  
+       ylab = "Probability of Abnormal Prothrombin Time")
+```
+
+Here, we visualize the predicted probability over time grouping by `sex`, `drug`, and marginal vs. subject-specific/typical subject.
+
+## Part 3
+
+From the plots created in question 3.2, we can compare the marginal and typical subject response curves and see if they coincide by `sex` or `drug`. In general, the marginal and typical subject response curves look like they do coincide, as their behaviors are more or less the same for both `sex` and `drug`. The only noticeable difference between the two curves are that the subject specific curves have a wider range of probabilities than that of the marginal curve, which makes sense as the probability values are more variable. Within the `sex` grouping, it appears that females have a higher probability of having an abnormal prothrombin time than males. Within the `drug` grouping, subjects receiving D-penicil have a higher probability of having an abnormal prothrombin time than those receiving the placebo. We also can't interpret the GLMM coefficient estimates as the population average effects because GLMM models work by obtaining coefficients for the 'typical' subject with those random effects.
+
+
+# Session Information
+
+```{r}
+sessionInfo()
+```
+
