@@ -1,0 +1,182 @@
+---
+title: "Max Tjen: 459 Homework 2"
+author: "Max Tjen"
+date: "`r Sys.Date()`"
+output:
+  html_document: 
+    theme: paper
+    highlight: textmate
+    toc: true
+    toc_float: true
+    number_sections: true
+    code_folding: show
+    code_download: true
+---
+
+```{r setup, include=FALSE, message = FALSE}
+knitr::opts_chunk$set(comment=NA)
+options(width = 70)
+```
+
+
+## Setup
+
+```{r load_packages, message = FALSE, warning = FALSE}
+
+library(nlme)
+library(tidyverse)
+
+theme_set(theme_bw())
+```
+
+## Data Import
+
+```{r, message = FALSE}
+pbc_data <- read_csv("/Users/mtjen/Desktop/459/homework/hw2/pbc.csv")
+
+head(pbc_data)
+```
+
+
+# Question 1
+```{r}
+q1_data <- pbc_data |>
+  select(drug, year, prothrombin)
+
+ggplot(pbc_data, aes(x = year, y = prothrombin, col = drug)) + 
+  geom_point() +
+  geom_smooth(method = "loess", formula = y ~ x, se = FALSE, col = "black") +
+  facet_grid(.~drug)
+```
+
+Our plot shows patient's `prothrombin` values by `year` and is faceted by `drug`. This allows us to see the longitudinal relationship between `prothrombin` and `year` for each of the `drug` groups 'D-penicil' and 'placebo'. By looking at this, it appears that the relationship for patients in each drug group is nearly the same in terms of the overall trend for each. Both of them appear to have a trend where `prothrombin` values steadily increase over time, albeit very little.
+
+
+# Question 2
+```{r}
+hw02_data <- pbc_data[pbc_data$prothrombin < 18,]
+
+model <- gls(model = prothrombin ~ factor(drug) + year + factor(sex) + age,
+             data = hw02_data, 
+             corr = corExp(form = ~ year|id),
+             method = 'ML')
+
+summary(model)
+```
+
+Here, we create a general linear model to compare the longitudinal response in `year` between `prothrombin` and `drug`. We also adjust the model for gender and age.
+
+
+# Question 3
+Based on the fit model and the fact that `prothrombin` represents standardized blood clotting time in seconds, we can interpret the coefficient meanings. For (drug)placebo, the coefficient is 0.105 with a p-value of 0.194. This means that if a patient is given the placebo rather than D-penicil, their standardized blood clotting time is expected to increase by 0.105 This coefficient is also determined to be insignificant for 95% significance, as it is above both the threshold of 0.05. `year` is the next variable with a coefficient of 0.114 and a p-value of 0.000. This means that standardized blood clotting time is expected to increase by 0.114 for each additional year from the enrollment date to the current date. The p-value is also below the threshold of 0.05, which means that it's significant with 95% significance. The next coefficient is for (sex)male, which has a coefficient of 0.334 and p-value of 0.008 and represents if a patient is male or female. This means that if a patient is male, then their standardized blood clotting time is expected to increase by 0.334 This coefficient is also determined to be significant for 95% significance, as it is below both the threshold of 0.05. The last coefficient is `age`, which represents the patient's age at registration in years. `age` has a coefficient of 0.013 and a p-value of 0.002, meaning that for each additional year old a patient is when they enrolled, their standardized blood clotting time is expected to increase by 0.013. This coefficient is also determined to be significant for 95% significance, as it is below both the threshold of 0.05.
+
+
+# Question 4
+
+## Hypotheses
+
+```{r}
+# model to test hypothesis
+model4 <- gls(model = prothrombin ~ factor(drug) * year,
+             data = hw02_data, 
+             corr = corExp(form = ~ year|id),
+             method = 'ML')
+```
+
+To compare if the two treatment groups have different longitudinal trends in `prothrombin` time change, the null hypothesis will be that the two groups have the same trend over time. In this instance, the interaction term measures the trends, so the null hypothesis is that the trends are not the same, or $\beta_3$ = 0. The alternative hypothesis is that the trends are different, in which case $\beta_3 \neq$ 0.
+
+## Wald Test
+
+```{r}
+beta.hat <- coef(model4)
+h <- c(0) 
+L <- rbind(c(0, 0, 0, 1))
+
+v.beta.hat <- model4$varBeta
+l.beta.hat <- L %*% beta.hat
+
+# wald stat and p value
+wald <- t(l.beta.hat - h) %*% solve(L %*% v.beta.hat %*% t(L)) %*% (l.beta.hat - h)
+pVal <- 1 - pchisq(wald, df = 1)
+
+wald
+pVal
+```
+
+By running the Wald test, we can see that the Wald statistic is 0.288 and its p-value is 0.592. Because the p-value is greater than 0.05, we can't conclude that we should reject the null hypothesis.
+
+## Likelihood Ratio Test
+
+```{r}
+# reduced model
+model4_red <- gls(model = prothrombin ~ factor(drug) + year,
+                  data = hw02_data, 
+                  corr = corExp(form = ~ year|id),
+                  method = 'ML')
+
+# log likelihood for each model
+l2 <- model4$logLik
+l1 <- model4_red$logLik
+ts <- -2 * (l1 - l2)
+
+p.value.alt <- 1 - pchisq(ts, df = 1)
+anova(model4, model4_red)
+p.value.alt
+```
+
+Here, we run the likelihood ratio test and we can see that the p-value is nearly identical to that of the Wald test, so we can't reject the null hypothesis again.
+
+## Comparison
+
+```{r}
+anova(model4)
+```
+
+From the ANOVA test, we ca see that the p-value for the interaction term is also very similar to the p-values for both the Wald test and the Likelihood Ratio test. Based on all of these tests, the null hypothesis can't be rejected, which means that $\beta_3$ = 0. Since $\beta_3$ represents the interaction term, we can conclude that the longitudinal trends in prothrombin are similar between the two treatment groups. 
+
+
+# Question 5
+
+## Part 1
+```{r}
+# original model
+model5 <- gls(model = prothrombin ~ factor(drug) + year + factor(sex) + age,
+             data = hw02_data, 
+             corr = corExp(form = ~ year|id),
+             method = 'REML')
+
+summary(model5)
+```
+
+```{r}
+model51 <- gls(model = prothrombin ~ factor(drug) + year + factor(sex) + age,
+             data = hw02_data, 
+             corr = corExp(form = ~ year|id),
+             weights = varExp(0.5, form = ~year),
+             method = 'REML')
+
+summary(model51)
+```
+
+Here, we create a new model requested by Ms. Smith. We can compare which model's fit is better by looking at AIC, BIC, and log likelihood (logLik) values. For the model from question 2, AIC = 4828.174, BIC =	4867.12, and logLik = -2407.087. For the new model, AIC = 4827.589, BIC =	4872.099, and logLik = -2405.795 Lower AIC and BIC values are better, the question 2 model is better in terms of BIC and this model is better in terms of AIC. The log likelihood score for this model is slightly larger than that of question 2's model, so this model is better than the question 2 model overall based on the criteria and LRT results.
+
+## Part 2
+```{r}
+model52 <- gls(model = prothrombin ~ factor(drug) + year + factor(sex) + age,
+             data = hw02_data, 
+             corr = corExp(form = ~ year|id),
+             weights = varExp(0.5, form = ~year|drug),
+             method = 'REML')
+
+summary(model52)
+```
+
+Here, we create a new model requested by Ms. Smith. We can compare which model's fit is better by looking at AIC, BIC, and log likelihood (logLik) values. For the model from question 2, AIC = 4828.174, BIC =	4867.12, and logLik = -2407.087. For the new model, AIC = 4817.484, BIC =	4867.558, and logLik = -2399.742 Lower AIC and BIC values are better, so the new model is better based on AIC and the question 2 model is better based on BIC. The log likelihood score of the new model is slightly larger than that of question 2, so the new model is better in terms of log likelihood. Overall, it appears that the new model is slightly better than the model from question 2 based on the criteria and LRT results.
+
+
+# Session Information
+
+```{r}
+sessionInfo()
+```
+
